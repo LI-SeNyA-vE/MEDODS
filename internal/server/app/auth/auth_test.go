@@ -4,9 +4,9 @@ import (
 	"MEDODS/internal/config/server"
 	"MEDODS/internal/server/app/auth"
 	"MEDODS/internal/server/repository/database"
-	"encoding/base64"
 	"github.com/sirupsen/logrus"
 	"testing"
+	"time"
 )
 
 type mockRepo struct {
@@ -52,31 +52,30 @@ func TestRefreshToken_SuccessAndFailOnReuse(t *testing.T) {
 	guid := "test-guid"
 	ip := "127.0.0.1"
 
-	// 1. Сначала создаём пару токенов
+	// Создаём пару токенов
 	tokens, err := authLogic.CreateToken(guid, ip)
 	if err != nil {
-		t.Fatalf("create token failed: %v", err)
+		t.Fatalf("не удалось создать токен: %v", err)
 	}
 
-	// Раскодируем refresh из base64
-	refreshRaw, err := base64.StdEncoding.DecodeString(tokens.RefreshToken)
+	time.Sleep(1 * time.Second)
+
+	// Первый вызов — успех
+	newTokens, err := authLogic.RefreshToken(tokens.RefreshToken, guid, ip, ip)
 	if err != nil {
-		t.Fatalf("base64 decode failed: %v", err)
+		t.Fatalf("первое обновление не удалось: %v", err)
 	}
 
-	// 2. Первый вызов — успех
-	newTokens, err := authLogic.RefreshToken(string(refreshRaw), guid, ip, ip)
-	if err != nil {
-		t.Fatalf("first refresh failed: %v", err)
-	}
 	if newTokens == nil || newTokens.RefreshToken == "" {
-		t.Fatal("new tokens not returned")
+		t.Fatal("новый токен не передан")
 	}
 
-	// 3. Повторный вызов с тем же токеном — должен упасть
-	_, err = authLogic.RefreshToken(string(refreshRaw), guid, ip, ip)
+	time.Sleep(1 * time.Second)
+
+	// Повторный вызов со старым токеном — должен упасть
+	_, err = authLogic.RefreshToken(tokens.RefreshToken, guid, ip, ip)
 	if err == nil {
-		t.Fatal("second use of refresh token should fail, but passed")
+		t.Fatal("токен прошёл валидацию, хотя не должен был")
 	}
 }
 
@@ -103,17 +102,23 @@ func TestRefreshToken_IPMismatch(t *testing.T) {
 		t.Fatalf("Ошибка создания токена: %v", err)
 	}
 
+	time.Sleep(1 * time.Second)
+
 	// Новый IP → триггер срабатывает
 	newTokens, err := authLogic.RefreshToken(tokens.RefreshToken, guid, ip, "10.10.10.10")
 	if err != nil {
 		t.Fatalf("Ошибка при рефреше токена: %v", err)
 	}
 
+	time.Sleep(1 * time.Second)
+
 	// Старый Refresh
 	_, err = authLogic.RefreshToken(tokens.RefreshToken, guid, ip, "10.10.10.10")
 	if err == nil {
 		t.Fatalf("Ошибка неволидный токен, прошёл валидацию: %v", err)
 	}
+
+	time.Sleep(1 * time.Second)
 
 	_, err = authLogic.RefreshToken(newTokens.RefreshToken, guid, ip, "192.168.0.1")
 	if err != nil {
